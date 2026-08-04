@@ -4,6 +4,7 @@ import { initTheme, applyTheme } from './theme.js';
 
 let currentChatId = null;
 let currentMessages = [];
+let attachedImages = []; // Stores Base64 images for multimodal input
 
 // DOM Elements
 const messagesContainer = document.getElementById('messagesContainer');
@@ -12,10 +13,16 @@ const sendBtn = document.getElementById('sendBtn');
 const newChatBtn = document.getElementById('newChatBtn');
 const chatHistoryList = document.getElementById('chatHistoryList');
 const settingsModal = document.getElementById('settingsModal');
+const authModal = document.getElementById('authModal');
+const fileAttachInput = document.getElementById('fileAttachInput');
+const attachmentPreview = document.getElementById('attachmentPreview');
+
+const CLAUDE_SVG = `<svg class="claude-icon" width="20" height="20" viewBox="0 0 24 24" fill="#D97706"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`;
 
 document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
     setupEventListeners();
+    await checkAuthStatus();
     await loadHistoryUI();
 });
 
@@ -50,26 +57,16 @@ function setupEventListeners() {
         });
     }
 
-    if (closeSidebarBtn) {
-        closeSidebarBtn.addEventListener('click', closeSidebar);
-    }
+    if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
+    if (overlay) overlay.addEventListener('click', closeSidebar);
 
-    if (overlay) {
-        overlay.addEventListener('click', closeSidebar);
-    }
-
-    // Enable/Disable Send Button on typing
+    // Input Typing Handler
     promptInput.addEventListener('input', () => {
         promptInput.style.height = 'auto';
         promptInput.style.height = promptInput.scrollHeight + 'px';
 
-        const hasText = promptInput.value.trim().length > 0;
-        sendBtn.disabled = !hasText;
-        if (hasText) {
-            sendBtn.removeAttribute('disabled');
-        } else {
-            sendBtn.setAttribute('disabled', 'true');
-        }
+        const hasContent = promptInput.value.trim().length > 0 || attachedImages.length > 0;
+        sendBtn.disabled = !hasContent;
 
         const charCounter = document.getElementById('charCounter');
         if (charCounter) charCounter.innerText = `${promptInput.value.length}/4000`;
@@ -78,16 +75,93 @@ function setupEventListeners() {
     promptInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            if (promptInput.value.trim()) sendMessage();
+            if (!sendBtn.disabled) sendMessage();
         }
     });
 
     sendBtn.addEventListener('click', (e) => {
         e.preventDefault();
-        if (promptInput.value.trim()) sendMessage();
+        if (!sendBtn.disabled) sendMessage();
     });
 
     if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
+
+    // File Attachment Logic (Base64 Conversion)
+    if (fileAttachInput) {
+        fileAttachInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        attachedImages.push(event.target.result);
+                        renderAttachmentPreviews();
+                        sendBtn.disabled = false;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            fileAttachInput.value = '';
+        });
+    }
+
+    // Auth Modal Handlers
+    const openAuthModalBtn = document.getElementById('openAuthModalBtn');
+    const closeAuthBtn = document.getElementById('closeAuthBtn');
+    const toggleAuthMode = document.getElementById('toggleAuthMode');
+    const authSubmitBtn = document.getElementById('authSubmitBtn');
+    let isSignUpMode = false;
+
+    if (openAuthModalBtn) {
+        openAuthModalBtn.addEventListener('click', () => {
+            closeSidebar();
+            if (authModal) authModal.showModal();
+        });
+    }
+
+    if (closeAuthBtn) closeAuthBtn.addEventListener('click', () => authModal.close());
+
+    if (toggleAuthMode) {
+        toggleAuthMode.addEventListener('click', (e) => {
+            e.preventDefault();
+            isSignUpMode = !isSignUpMode;
+            document.getElementById('authTitle').innerText = isSignUpMode ? 'Sign Up' : 'Sign In';
+            authSubmitBtn.innerText = isSignUpMode ? 'Create Account' : 'Sign In';
+            toggleAuthMode.innerText = isSignUpMode ? 'Sign In' : 'Sign Up';
+            document.getElementById('authErrorMsg').innerText = '';
+        });
+    }
+
+    if (authSubmitBtn) {
+        authSubmitBtn.addEventListener('click', async () => {
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+            const errorMsg = document.getElementById('authErrorMsg');
+
+            const endpoint = isSignUpMode ? '/api/auth/signup' : '/api/auth/login';
+
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorMsg.innerText = data.error || 'Authentication failed.';
+                    return;
+                }
+
+                errorMsg.innerText = '';
+                authModal.close();
+                await checkAuthStatus();
+            } catch (err) {
+                errorMsg.innerText = 'Network connection error.';
+            }
+        });
+    }
 
     // Settings Modal Controls
     const openSetBtn = document.getElementById('openSettingsBtn');
@@ -104,40 +178,101 @@ function setupEventListeners() {
     }
 }
 
+function renderAttachmentPreviews() {
+    if (!attachmentPreview) return;
+    attachmentPreview.innerHTML = '';
+    attachedImages.forEach((imgSrc, index) => {
+        const item = document.createElement('div');
+        item.className = 'preview-item';
+        item.innerHTML = `
+            <img src="${imgSrc}" alt="Attachment">
+            <button class="remove-btn" data-index="${index}">✕</button>
+        `;
+        attachmentPreview.appendChild(item);
+    });
+
+    attachmentPreview.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            attachedImages.splice(idx, 1);
+            renderAttachmentPreviews();
+            if (attachedImages.length === 0 && promptInput.value.trim().length === 0) {
+                sendBtn.disabled = true;
+            }
+        });
+    });
+}
+
+async function checkAuthStatus() {
+    const profileBar = document.getElementById('userProfileBar');
+    if (!profileBar) return;
+
+    try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+
+        if (data.authenticated) {
+            profileBar.innerHTML = `
+                <div class="user-info">
+                    <span class="user-email">${data.user}</span>
+                    <button class="btn-logout" id="logoutBtn">Logout</button>
+                </div>
+            `;
+            document.getElementById('logoutBtn').addEventListener('click', async () => {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                await checkAuthStatus();
+            });
+        } else {
+            profileBar.innerHTML = `<button class="btn-auth" id="openAuthModalBtn">Sign In / Register</button>`;
+            document.getElementById('openAuthModalBtn').addEventListener('click', () => authModal.showModal());
+        }
+    } catch (e) {}
+}
+
 async function createNewChat() {
     currentChatId = Date.now().toString();
     currentMessages = [];
-    messagesContainer.innerHTML = `<div class="welcome-screen"><h2>What can I help with today?</h2></div>`;
+    messagesContainer.innerHTML = `
+        <div class="welcome-screen" id="welcomeScreen">
+            <svg class="claude-hero-logo" width="48" height="48" viewBox="0 0 24 24" fill="#D97706"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            <h2>What can I help with today?</h2>
+        </div>
+    `;
     await loadHistoryUI();
 }
 
 async function sendMessage() {
     const text = promptInput.value.trim();
-    if (!text) return;
+    if (!text && attachedImages.length === 0) return;
 
     if (!currentChatId) currentChatId = Date.now().toString();
 
+    const currentReqImages = [...attachedImages];
+
     // 1. Render User Message
-    appendMessageUI('user', text);
+    appendMessageUI('user', text, currentReqImages);
     currentMessages.push({ role: 'user', content: text });
 
+    // Clear input
     promptInput.value = '';
     promptInput.style.height = 'auto';
+    attachedImages = [];
+    renderAttachmentPreviews();
     sendBtn.disabled = true;
 
-    // 2. Render Assistant Placeholder
-    const botMsgNode = appendMessageUI('assistant', 'Thinking...');
+    // 2. Render Assistant Thinking Placeholder with Claude Branding
+    const botMsgNode = appendMessageUI('assistant', '<div class="thinking-state">' + CLAUDE_SVG + ' <span>Thinking...</span></div>');
     const bubble = botMsgNode.querySelector('.message-bubble');
 
     let fullResponse = '';
 
     try {
-        // 3. Send JSON Data to Flask Server
         const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: currentMessages,
+                images: currentReqImages,
                 model: localStorage.getItem('preferred-model') || 'anthropic/claude-3.5-sonnet',
                 apiKeyOverride: localStorage.getItem('api-key-override') || ''
             })
@@ -149,7 +284,6 @@ async function sendMessage() {
             return;
         }
 
-        // 4. Stream & Parse Response (Reading Server JSON Stream)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         bubble.innerHTML = '';
@@ -178,14 +312,14 @@ async function sendMessage() {
                         } else if (parsed.error) {
                             bubble.innerHTML = `<span style="color: #ef4444;">API Error: ${parsed.error}</span>`;
                         }
-                    } catch (e) {
-                        // Partial chunk parse error
-                    }
+                    } catch (e) {}
                 }
             }
         }
 
-        // 5. Save Completed Response to Local History (IndexedDB)
+        // Add Interactive Actions Bar to Bot Output
+        appendBotActions(botMsgNode, fullResponse);
+
         if (fullResponse) {
             currentMessages.push({ role: 'assistant', content: fullResponse });
             await StorageDB.saveChat({
@@ -198,27 +332,89 @@ async function sendMessage() {
         }
 
     } catch (err) {
-        bubble.innerHTML = `<span style="color: #ef4444;">Connection Error: Check server terminal.</span>`;
+        bubble.innerHTML = `<span style="color: #ef4444;">Connection Error: Check server connection.</span>`;
     }
 }
 
-function appendMessageUI(role, content) {
+function appendMessageUI(role, content, images = []) {
     const welcome = document.querySelector('.welcome-screen');
     if (welcome) welcome.remove();
 
     const row = document.createElement('div');
     row.className = `message-row ${role}`;
 
+    let imagesMarkup = '';
+    if (images.length > 0) {
+        imagesMarkup = `<div class="msg-images-grid">${images.map(img => `<img src="${img}" alt="Attached Image">`).join('')}</div>`;
+    }
+
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    bubble.innerHTML = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content);
+    
+    if (role === 'assistant') {
+        bubble.innerHTML = content.includes('thinking-state') ? content : renderMarkdown(content);
+    } else {
+        bubble.innerHTML = imagesMarkup + `<div>${escapeHtml(content)}</div>`;
+    }
 
     row.appendChild(bubble);
     messagesContainer.appendChild(row);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-    if (role === 'assistant') enhanceCodeBlocks(bubble);
+    if (role === 'assistant' && !content.includes('thinking-state')) {
+        enhanceCodeBlocks(bubble);
+    }
+
     return row;
+}
+
+function appendBotActions(rowNode, textContent) {
+    const actionsBar = document.createElement('div');
+    actionsBar.className = 'bot-actions-bar';
+    actionsBar.innerHTML = `
+        <button class="action-btn copy-btn" title="Copy text">📋</button>
+        <button class="action-btn listen-btn" title="Listen response">🔊</button>
+        <button class="action-btn thumb-up-btn" title="Good response">👍</button>
+        <button class="action-btn thumb-down-btn" title="Bad response">👎</button>
+        <button class="action-btn reload-btn" title="Regenerate">🔄</button>
+    `;
+
+    rowNode.appendChild(actionsBar);
+
+    // Copy Button Logic
+    actionsBar.querySelector('.copy-btn').addEventListener('click', (e) => {
+        navigator.clipboard.writeText(textContent);
+        e.target.innerText = '✅';
+        setTimeout(() => e.target.innerText = '📋', 2000);
+    });
+
+    // Speech Voice Output
+    actionsBar.querySelector('.listen-btn').addEventListener('click', () => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(textContent);
+            window.speechSynthesis.speak(utterance);
+        }
+    });
+
+    // Feedback
+    actionsBar.querySelector('.thumb-up-btn').addEventListener('click', (e) => {
+        e.target.style.color = '#10B981';
+    });
+    actionsBar.querySelector('.thumb-down-btn').addEventListener('click', (e) => {
+        e.target.style.color = '#EF4444';
+    });
+
+    // Regenerate Response
+    actionsBar.querySelector('.reload-btn').addEventListener('click', () => {
+        if (currentMessages.length > 0) {
+            if (currentMessages[currentMessages.length - 1].role === 'assistant') {
+                currentMessages.pop();
+            }
+            rowNode.remove();
+            sendMessage();
+        }
+    });
 }
 
 async function loadHistoryUI() {
@@ -232,7 +428,6 @@ async function loadHistoryUI() {
         item.innerText = chat.title || 'Untitled Chat';
         item.addEventListener('click', () => {
             loadChat(chat);
-            // Mobile screen वर history निवडून झाल्यावर sidebar ऑटो क्लोज होईल
             const sidebar = document.getElementById('sidebar');
             const overlay = document.querySelector('.sidebar-overlay');
             if (sidebar) sidebar.classList.remove('open');
@@ -246,7 +441,10 @@ function loadChat(chat) {
     currentChatId = chat.id;
     currentMessages = chat.messages;
     messagesContainer.innerHTML = '';
-    currentMessages.forEach(msg => appendMessageUI(msg.role, msg.content));
+    currentMessages.forEach(msg => {
+        const node = appendMessageUI(msg.role, msg.content);
+        if (msg.role === 'assistant') appendBotActions(node, msg.content);
+    });
     loadHistoryUI();
 }
 

@@ -273,7 +273,7 @@ async function sendMessage() {
             body: JSON.stringify({
                 messages: currentMessages,
                 images: currentReqImages,
-                model: localStorage.getItem('preferred-model') || 'anthropic/claude-3.5-sonnet',
+                model: localStorage.getItem('preferred-model') || 'anthropic/claude-3-haiku',
                 apiKeyOverride: localStorage.getItem('api-key-override') || ''
             })
         });

@@ -226,7 +226,7 @@ async function checkAuthStatus() {
             profileBar.innerHTML = `<button class="btn-auth" id="openAuthModalBtn">Sign In / Register</button>`;
             document.getElementById('openAuthModalBtn').addEventListener('click', () => authModal.showModal());
         }
-    } catch (e) {}
+    } catch (e) { }
 }
 
 async function createNewChat() {
@@ -234,7 +234,6 @@ async function createNewChat() {
     currentMessages = [];
     messagesContainer.innerHTML = `
         <div class="welcome-screen" id="welcomeScreen">
-            <svg class="claude-hero-logo" width="48" height="48" viewBox="0 0 24 24" fill="#D97706"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
             <h2>What can I help with today?</h2>
         </div>
     `;
@@ -312,7 +311,7 @@ async function sendMessage() {
                         } else if (parsed.error) {
                             bubble.innerHTML = `<span style="color: #ef4444;">API Error: ${parsed.error}</span>`;
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
             }
         }
@@ -350,7 +349,7 @@ function appendMessageUI(role, content, images = []) {
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    
+
     if (role === 'assistant') {
         bubble.innerHTML = content.includes('thinking-state') ? content : renderMarkdown(content);
     } else {

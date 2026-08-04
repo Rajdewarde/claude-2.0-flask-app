@@ -77,7 +77,7 @@ def get_config():
     return jsonify({
         "appName": app.config.get('APP_NAME', 'Claude 2.0'),
         "appSubtitle": app.config.get('APP_SUBTITLE', 'Intelligent Conversational Partner'),
-        "defaultModel": "anthropic/claude-3.5-sonnet",
+        "defaultModel": "anthropic/claude-3-haiku",
         "defaultTemperature": 0.7,
         "hasApiKey": has_key
     })
@@ -90,7 +90,7 @@ def chat_stream():
     api_key_override = data.get("apiKeyOverride")
     images = data.get("images", []) # Base64 Image Support
     
-    model_name = data.get("model") or "anthropic/claude-3.5-sonnet"
+    model_name = data.get("model") or "anthropic/claude-3.5-haiku"  # Default model
 
     client = get_openrouter_client(api_key_override)
 

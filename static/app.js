@@ -20,6 +20,44 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupEventListeners() {
+    // Dynamic Mobile Overlay Creation
+    let overlay = document.querySelector('.sidebar-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'sidebar-overlay';
+        document.body.appendChild(overlay);
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+
+    function openSidebar() {
+        if (sidebar) sidebar.classList.add('open');
+        if (overlay) overlay.classList.add('active');
+    }
+
+    function closeSidebar() {
+        if (sidebar) sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
+    }
+
+    // Sidebar Toggles
+    const toggleBtn = document.getElementById('toggleSidebarBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openSidebar();
+        });
+    }
+
+    if (closeSidebarBtn) {
+        closeSidebarBtn.addEventListener('click', closeSidebar);
+    }
+
+    if (overlay) {
+        overlay.addEventListener('click', closeSidebar);
+    }
+
     // Enable/Disable Send Button on typing
     promptInput.addEventListener('input', () => {
         promptInput.style.height = 'auto';
@@ -29,6 +67,8 @@ function setupEventListeners() {
         sendBtn.disabled = !hasText;
         if (hasText) {
             sendBtn.removeAttribute('disabled');
+        } else {
+            sendBtn.setAttribute('disabled', 'true');
         }
 
         const charCounter = document.getElementById('charCounter');
@@ -49,18 +89,13 @@ function setupEventListeners() {
 
     if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
 
-    // Sidebar Toggles
-    const toggleBtn = document.getElementById('toggleSidebarBtn');
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', () => {
-            document.getElementById('sidebar').classList.toggle('open');
-        });
-    }
-
     // Settings Modal Controls
     const openSetBtn = document.getElementById('openSettingsBtn');
     const closeSetBtn = document.getElementById('closeSettingsBtn');
-    if (openSetBtn) openSetBtn.addEventListener('click', () => settingsModal.showModal());
+    if (openSetBtn) openSetBtn.addEventListener('click', () => {
+        closeSidebar();
+        settingsModal.showModal();
+    });
     if (closeSetBtn) closeSetBtn.addEventListener('click', () => settingsModal.close());
 
     const themeSelect = document.getElementById('themeSelect');
@@ -103,7 +138,6 @@ async function sendMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: currentMessages,
-                // OpenRouter साठी Claude Model set केले आहे
                 model: localStorage.getItem('preferred-model') || 'anthropic/claude-3.5-sonnet',
                 apiKeyOverride: localStorage.getItem('api-key-override') || ''
             })
@@ -129,8 +163,7 @@ async function sendMessage() {
 
             for (const line of lines) {
                 const trimmedLine = line.trim();
-                
-                // Server कडून येणाऱ्या 'data: {...}' मधून JSON बाहेर काढणे
+
                 if (trimmedLine.startsWith('data: ')) {
                     const dataStr = trimmedLine.replace('data: ', '').trim();
                     if (dataStr === '[DONE]') break;
@@ -146,7 +179,7 @@ async function sendMessage() {
                             bubble.innerHTML = `<span style="color: #ef4444;">API Error: ${parsed.error}</span>`;
                         }
                     } catch (e) {
-                        // Partial chunk parse error - सुरक्षितपणे इग्नोर होईल
+                        // Partial chunk parse error
                     }
                 }
             }
@@ -197,7 +230,14 @@ async function loadHistoryUI() {
         const item = document.createElement('div');
         item.className = `history-item ${chat.id === currentChatId ? 'active' : ''}`;
         item.innerText = chat.title || 'Untitled Chat';
-        item.addEventListener('click', () => loadChat(chat));
+        item.addEventListener('click', () => {
+            loadChat(chat);
+            // Mobile screen वर history निवडून झाल्यावर sidebar ऑटो क्लोज होईल
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.querySelector('.sidebar-overlay');
+            if (sidebar) sidebar.classList.remove('open');
+            if (overlay) overlay.classList.remove('active');
+        });
         chatHistoryList.appendChild(item);
     });
 }

@@ -350,11 +350,20 @@ textarea {
     display: block;
 }
 
+
 /* Mobile Responsive Adjustments */
 @media (max-width: 768px) {
+
+    body,
+    html {
+        height: 100dvh;
+        /* Mobile screen dynamic viewport height */
+    }
+
     .app-layout {
         position: relative;
         overflow-x: hidden;
+        height: 100dvh;
     }
 
     .sidebar {
@@ -363,7 +372,7 @@ textarea {
         left: -100%;
         width: 80% !important;
         max-width: 300px;
-        height: 100vh;
+        height: 100dvh;
         z-index: 1000;
         background-color: var(--bg-sidebar);
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.15);
@@ -373,35 +382,50 @@ textarea {
         left: 0 !important;
     }
 
+    /* Chat Viewport Layout Adjustment */
     .chat-viewport {
         width: 100%;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
 
     .messages-container {
+        flex: 1;
         padding: 12px;
+        overflow-y: auto;
     }
 
     .welcome-screen h2 {
         font-size: 1.4rem;
     }
 
+    /* Input Box Bottom Lock Fix */
     .input-wrapper {
         padding: 8px 12px;
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-surface);
+        z-index: 10;
+        margin-bottom: env(safe-area-inset-bottom, 10px);
+        /* iPhone / Android notch spacing */
     }
 
     .input-card {
+        display: flex;
         flex-direction: row;
         align-items: center;
         padding: 8px 12px;
-    }
-
-    .input-actions {
-        margin-top: 0;
+        gap: 8px;
     }
 
     .btn-send {
-        min-width: 36px;
-        height: 36px;
+        min-width: 38px;
+        height: 38px;
         padding: 6px;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
     }
 }

@@ -6,11 +6,7 @@ from openai import OpenAI
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
 
-app = Flask(
-    __name__,
-    template_folder=os.path.join(base_dir, 'templates'),
-    static_folder=os.path.join(base_dir, 'static')
-)
+app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config.from_object(Config)
 
 # OpenRouter Client Helper
@@ -34,21 +30,18 @@ def get_config():
     return jsonify({
         "appName": app.config.get('APP_NAME', 'Claude 2.0'),
         "appSubtitle": app.config.get('APP_SUBTITLE', 'Intelligent Conversational Partner'),
-        "defaultModel": "anthropic/claude-3-haiku",  # OpenRouter Model
+        "defaultModel": "anthropic/claude-3-haiku",
         "defaultTemperature": 0.7,
         "hasApiKey": has_key
     })
 
-# 🛠️ फिक्स १: Route नाव '/api/chat/stream' केले आहे
 @app.route('/api/chat/stream', methods=['POST'])
 def chat_stream():
-    # 🛠️ फिक्स २: JSON Request मधून सर्व व्हॅरियबल्स व्यवस्थित घेतले आहेत
     data = request.get_json() or {}
     messages = data.get("messages", [])
     system_instruction = data.get("systemInstruction", app.config.get('SYSTEM_PROMPT', ''))
     api_key_override = data.get("apiKeyOverride")
     
-    # Model fallback logic (404 Error टाळण्यासाठी)
     model_name = data.get("model")
     if not model_name or "gemini" in model_name or "3.5-sonnet" in model_name:
         model_name = "anthropic/claude-3-haiku"
@@ -58,7 +51,6 @@ def chat_stream():
     if not client:
         return jsonify({"error": "OpenRouter API Key is not configured."}), 400
 
-    # Format messages array for OpenAI/OpenRouter format
     formatted_messages = []
     if system_instruction:
         formatted_messages.append({"role": "system", "content": system_instruction})
@@ -93,7 +85,3 @@ def chat_stream():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-    
-
-if __name__ == '__main__':
-    app.run(debug=True)

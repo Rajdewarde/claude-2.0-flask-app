@@ -17,14 +17,135 @@ const authModal = document.getElementById('authModal');
 const fileAttachInput = document.getElementById('fileAttachInput');
 const attachmentPreview = document.getElementById('attachmentPreview');
 
-const CLAUDE_SVG = `<svg class="claude-icon" width="20" height="20" viewBox="0 0 24 24" fill="#D97706"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`;
+const SARATHI_SVG = `<svg class="sarathi-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4" y1="16" x2="20" y2="16"/><path d="M7 16a5 5 0 0 1 10 0"/><line x1="12" y1="6" x2="12" y2="8.5"/><line x1="7.6" y1="8.1" x2="9.1" y2="9.9"/><line x1="16.4" y1="8.1" x2="14.9" y2="9.9"/></svg>`;
+
+// Maps the real OpenRouter model id -> the friendly name shown in the UI.
+// The dropdown in Settings uses these same values, so keep both in sync.
+const MODEL_LABELS = {
+    'anthropic/claude-3.5-haiku': 'Sarathi Prime',
+    'anthropic/claude-3-haiku': 'Sarathi Flash'
+};
+
+let currentPlanData = null;
+
+function updateModelBadge() {
+    const badge = document.getElementById('currentModelDisplay');
+    if (!badge) return;
+    const modelId = localStorage.getItem('preferred-model') || 'anthropic/claude-3.5-haiku';
+    badge.innerText = MODEL_LABELS[modelId] || 'Sarathi Prime';
+}
+
+async function fetchAndRenderPlan() {
+    try {
+        const res = await fetch('/api/plan');
+        const data = await res.json();
+        currentPlanData = data;
+
+        const nameEl = document.getElementById('usagePlanName');
+        const countEl = document.getElementById('usageCount');
+        const fillEl = document.getElementById('usageBarFill');
+        if (nameEl) nameEl.innerText = data.planLabel;
+        if (countEl) countEl.innerText = `${data.used}/${data.limit}`;
+        if (fillEl) {
+            const pct = Math.min(100, Math.round((data.used / data.limit) * 100));
+            fillEl.style.width = `${pct}%`;
+        }
+
+        updateModelSelectLocks();
+    } catch (e) { /* Plan info is a nice-to-have; fail silently if offline */ }
+}
+
+function updateModelSelectLocks() {
+    const modelSelect = document.getElementById('modelSelect');
+    if (!modelSelect || !currentPlanData) return;
+    Array.from(modelSelect.options).forEach(opt => {
+        const allowed = currentPlanData.models.includes(opt.value);
+        const baseLabel = MODEL_LABELS[opt.value] ? opt.innerText.replace(/^🔒 /, '') : opt.innerText;
+        opt.innerText = allowed ? baseLabel.replace(/^🔒 /, '') : `🔒 ${baseLabel.replace(/^🔒 /, '')}`;
+        opt.disabled = !allowed;
+    });
+}
+
+function renderPlanCards() {
+    const container = document.getElementById('planCardsContainer');
+    if (!container || !currentPlanData) return;
+
+    const { plans, planOrder, plan: activePlan } = currentPlanData;
+    const activeIndex = planOrder.indexOf(activePlan);
+
+    container.innerHTML = planOrder.map((planId, idx) => {
+        const p = plans[planId];
+        const isCurrent = planId === activePlan;
+        const isDowngrade = idx < activeIndex;
+        const featuresHtml = p.features.map(f => `<li>${f}</li>`).join('');
+        return `
+            <div class="plan-card ${planId === 'sarathi' ? 'recommended' : ''} ${isCurrent ? 'current' : ''}">
+                ${planId === 'sarathi' ? '<span class="plan-card-badge">Popular</span>' : ''}
+                <div class="plan-card-header">
+                    <span class="plan-title">${p.label}</span>
+                    <span class="plan-price">${p.price}</span>
+                </div>
+                <div class="plan-card-limit">${p.tagline}</div>
+                <ul class="plan-card-features">${featuresHtml}</ul>
+                <button class="plan-card-action" data-plan-id="${planId}" ${isCurrent ? 'disabled' : ''}>
+                    ${isCurrent ? 'Current Plan' : (isDowngrade ? 'Switch back' : 'Switch to ' + p.label)}
+                </button>
+            </div>
+        `;
+    }).join('');
+
+    container.querySelectorAll('.plan-card-action:not(:disabled)').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const planId = btn.getAttribute('data-plan-id');
+            btn.disabled = true;
+            btn.innerText = 'Switching...';
+            try {
+                await fetch('/api/plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plan: planId })
+                });
+                await fetchAndRenderPlan();
+                renderPlanCards();
+                updateModelBadge();
+            } catch (e) {
+                btn.disabled = false;
+                btn.innerText = 'Try again';
+            }
+        });
+    });
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
+    updateModelBadge();
     setupEventListeners();
     await checkAuthStatus();
     await loadHistoryUI();
+    await fetchAndRenderPlan();
+    await refreshActiveDocument();
 });
+
+// --- Document RAG (chat with a PDF/text file) --------------------------
+function renderActiveDocument(doc) {
+    const pill = document.getElementById('activeDocPill');
+    const nameEl = document.getElementById('activeDocName');
+    if (!pill || !nameEl) return;
+    if (doc) {
+        nameEl.innerText = doc.filename;
+        pill.hidden = false;
+    } else {
+        pill.hidden = true;
+    }
+}
+
+async function refreshActiveDocument() {
+    try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        renderActiveDocument(data.activeDocument || null);
+    } catch (e) { /* non-critical */ }
+}
 
 function setupEventListeners() {
     // Dynamic Mobile Overlay Creation
@@ -105,6 +226,49 @@ function setupEventListeners() {
         });
     }
 
+    // Document Upload (RAG) — attach a PDF/text file to chat with it
+    const docAttachInput = document.getElementById('docAttachInput');
+    const removeDocBtn = document.getElementById('removeDocBtn');
+
+    if (docAttachInput) {
+        docAttachInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            docAttachInput.value = '';
+            if (!file) return;
+
+            const nameEl = document.getElementById('activeDocName');
+            const pill = document.getElementById('activeDocPill');
+            if (nameEl) nameEl.innerText = `Reading ${file.name}...`;
+            if (pill) pill.hidden = false;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/documents/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || 'Could not process that document.');
+                    renderActiveDocument(null);
+                    return;
+                }
+                renderActiveDocument({ filename: data.filename });
+            } catch (err) {
+                alert('Upload failed — check your connection.');
+                renderActiveDocument(null);
+            }
+        });
+    }
+
+    if (removeDocBtn) {
+        removeDocBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/api/documents/clear', { method: 'POST' });
+            } catch (e) { /* clear the UI regardless */ }
+            renderActiveDocument(null);
+        });
+    }
+
     // Auth Modal Handlers
     const openAuthModalBtn = document.getElementById('openAuthModalBtn');
     const closeAuthBtn = document.getElementById('closeAuthBtn');
@@ -163,11 +327,33 @@ function setupEventListeners() {
         });
     }
 
+    // Plans Modal Controls
+    const openPlansBtn = document.getElementById('openPlansBtn');
+    const closePlansBtn = document.getElementById('closePlansBtn');
+    const usageBadge = document.getElementById('usageBadge');
+    const plansModal = document.getElementById('plansModal');
+
+    const openPlans = () => {
+        closeSidebar();
+        renderPlanCards();
+        if (plansModal) plansModal.showModal();
+    };
+
+    if (openPlansBtn) openPlansBtn.addEventListener('click', openPlans);
+    if (usageBadge) usageBadge.addEventListener('click', openPlans);
+    if (closePlansBtn) closePlansBtn.addEventListener('click', () => plansModal.close());
+
     // Settings Modal Controls
     const openSetBtn = document.getElementById('openSettingsBtn');
     const closeSetBtn = document.getElementById('closeSettingsBtn');
+    const modelSelect = document.getElementById('modelSelect');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+
     if (openSetBtn) openSetBtn.addEventListener('click', () => {
         closeSidebar();
+        // Populate the form with whatever is currently saved before showing it
+        if (modelSelect) modelSelect.value = localStorage.getItem('preferred-model') || 'anthropic/claude-3.5-haiku';
+        if (apiKeyInput) apiKeyInput.value = localStorage.getItem('api-key-override') || '';
         settingsModal.showModal();
     });
     if (closeSetBtn) closeSetBtn.addEventListener('click', () => settingsModal.close());
@@ -175,6 +361,60 @@ function setupEventListeners() {
     const themeSelect = document.getElementById('themeSelect');
     if (themeSelect) {
         themeSelect.addEventListener('change', (e) => applyTheme(e.target.value));
+    }
+
+    if (modelSelect) {
+        modelSelect.addEventListener('change', (e) => {
+            localStorage.setItem('preferred-model', e.target.value);
+            updateModelBadge();
+        });
+    }
+
+    if (apiKeyInput) {
+        apiKeyInput.addEventListener('change', (e) => {
+            const key = e.target.value.trim();
+            if (key) {
+                localStorage.setItem('api-key-override', key);
+            } else {
+                localStorage.removeItem('api-key-override');
+            }
+        });
+    }
+
+    const exportDataBtn = document.getElementById('exportDataBtn');
+    if (exportDataBtn) {
+        exportDataBtn.addEventListener('click', async () => {
+            const chats = await StorageDB.getAllChats();
+            const blob = new Blob([JSON.stringify(chats, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sarathi-ai-export-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    const clearDataBtn = document.getElementById('clearDataBtn');
+    if (clearDataBtn) {
+        clearDataBtn.addEventListener('click', async () => {
+            const confirmed = window.confirm('Delete all saved chat history on this device? This cannot be undone.');
+            if (!confirmed) return;
+            const chats = await StorageDB.getAllChats();
+            await Promise.all(chats.map(chat => StorageDB.deleteChat(chat.id)));
+            currentChatId = null;
+            currentMessages = [];
+            messagesContainer.innerHTML = `
+                <div class="welcome-screen" id="welcomeScreen">
+                    ${SARATHI_SVG.replace('sarathi-icon', 'hero-mark').replace('width="20" height="20"', 'width="52" height="52"')}
+                    <h2>Where shall we go today?</h2>
+                </div>
+            `;
+            await loadHistoryUI();
+            settingsModal.close();
+        });
     }
 }
 
@@ -229,14 +469,22 @@ async function checkAuthStatus() {
     } catch (e) { }
 }
 
+async function clearActiveDocumentSilently() {
+    try { await fetch('/api/documents/clear', { method: 'POST' }); } catch (e) { /* ignore */ }
+    renderActiveDocument(null);
+}
+
 async function createNewChat() {
     currentChatId = Date.now().toString();
     currentMessages = [];
     messagesContainer.innerHTML = `
         <div class="welcome-screen" id="welcomeScreen">
-            <h2>What can I help with today?</h2>
+            ${SARATHI_SVG.replace('sarathi-icon', 'hero-mark').replace('width="20" height="20"', 'width="52" height="52"')}
+            <h2>Where shall we go today?</h2>
         </div>
     `;
+    // A document attached in a previous thread shouldn't silently leak into a new one
+    await clearActiveDocumentSilently();
     await loadHistoryUI();
 }
 
@@ -259,8 +507,8 @@ async function sendMessage() {
     renderAttachmentPreviews();
     sendBtn.disabled = true;
 
-    // 2. Render Assistant Thinking Placeholder with Claude Branding
-    const botMsgNode = appendMessageUI('assistant', '<div class="thinking-state">' + CLAUDE_SVG + ' <span>Thinking...</span></div>');
+    // 2. Render Assistant Thinking Placeholder with the Sarathi wheel mark
+    const botMsgNode = appendMessageUI('assistant', '<div class="thinking-state">' + SARATHI_SVG + ' <span>Thinking...</span></div>');
     const bubble = botMsgNode.querySelector('.message-bubble');
 
     let fullResponse = '';
@@ -272,14 +520,29 @@ async function sendMessage() {
             body: JSON.stringify({
                 messages: currentMessages,
                 images: currentReqImages,
-                model: localStorage.getItem('preferred-model') || 'anthropic/claude-3-haiku',
+                model: localStorage.getItem('preferred-model') || 'anthropic/claude-3.5-haiku',
                 apiKeyOverride: localStorage.getItem('api-key-override') || ''
             })
         });
 
         if (!response.ok) {
             const errData = await response.json();
-            bubble.innerHTML = `<span style="color: #ef4444;">Error: ${errData.error || 'Server request failed.'}</span>`;
+            if (errData.limitReached || errData.upgradeRequired) {
+                bubble.innerHTML = `
+                    <div class="upgrade-prompt">
+                        <span>${errData.error}</span>
+                        <button class="upgrade-btn" id="inlineUpgradeBtn">View Plans</button>
+                    </div>
+                `;
+                const btn = bubble.querySelector('#inlineUpgradeBtn');
+                if (btn) btn.addEventListener('click', () => {
+                    renderPlanCards();
+                    document.getElementById('plansModal').showModal();
+                });
+            } else {
+                bubble.innerHTML = `<span style="color: var(--danger-color);">Error: ${errData.error || 'Server request failed.'}</span>`;
+            }
+            await fetchAndRenderPlan();
             return;
         }
 
@@ -309,7 +572,7 @@ async function sendMessage() {
                             enhanceCodeBlocks(bubble);
                             messagesContainer.scrollTop = messagesContainer.scrollHeight;
                         } else if (parsed.error) {
-                            bubble.innerHTML = `<span style="color: #ef4444;">API Error: ${parsed.error}</span>`;
+                            bubble.innerHTML = `<span style="color: var(--danger-color);">API Error: ${parsed.error}</span>`;
                         }
                     } catch (e) { }
                 }
@@ -331,7 +594,7 @@ async function sendMessage() {
         }
 
     } catch (err) {
-        bubble.innerHTML = `<span style="color: #ef4444;">Connection Error: Check server connection.</span>`;
+        bubble.innerHTML = `<span style="color: var(--danger-color);">Connection Error: Check server connection.</span>`;
     }
 }
 
@@ -398,10 +661,10 @@ function appendBotActions(rowNode, textContent) {
 
     // Feedback
     actionsBar.querySelector('.thumb-up-btn').addEventListener('click', (e) => {
-        e.target.style.color = '#10B981';
+        e.target.style.color = 'var(--accent-color)';
     });
     actionsBar.querySelector('.thumb-down-btn').addEventListener('click', (e) => {
-        e.target.style.color = '#EF4444';
+        e.target.style.color = 'var(--danger-color)';
     });
 
     // Regenerate Response
@@ -444,6 +707,8 @@ function loadChat(chat) {
         const node = appendMessageUI(msg.role, msg.content);
         if (msg.role === 'assistant') appendBotActions(node, msg.content);
     });
+    // Past chats don't remember which document (if any) was attached at the time
+    clearActiveDocumentSilently();
     loadHistoryUI();
 }
 

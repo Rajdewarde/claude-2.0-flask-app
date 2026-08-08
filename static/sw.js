@@ -1,6 +1,6 @@
 // static/js/sw.js
 
-const CACHE_NAME = 'claude-2.0-cache-v1';
+const CACHE_NAME = 'sarathi-ai-cache-v1';
 const ASSETS_TO_CACHE = [
     '/',
     '/static/css/style.css',
@@ -8,7 +8,10 @@ const ASSETS_TO_CACHE = [
     '/static/api.js',
     '/static/db.js',
     '/static/markdown.js',
-    '/static/theme.js'
+    '/static/theme.js',
+    '/static/manifest.json',
+    '/static/icons/icon-192.png',
+    '/static/icons/icon-512.png'
 ];
 
 // Install Event

@@ -1,4 +1,4 @@
-const DB_NAME = 'Claude2AppDB';
+const DB_NAME = 'SarathiAIDB';
 const DB_VERSION = 1;
 
 export class StorageDB {

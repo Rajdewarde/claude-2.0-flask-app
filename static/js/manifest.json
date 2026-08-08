@@ -1,0 +1,23 @@
+{
+  "name": "Sarathi AI",
+  "short_name": "Sarathi AI",
+  "description": "Your AI guide for every conversation — bilingual English/Marathi chat assistant.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14152B",
+  "theme_color": "#14152B",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
